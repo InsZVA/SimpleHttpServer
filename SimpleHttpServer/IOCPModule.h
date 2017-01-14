@@ -6,7 +6,6 @@
 #include <WS2tcpip.h>
 #include <functional>
 #include <iostream>
-#include "Mempool.h"
 
 #pragma comment (lib, "Ws2_32.lib")
 
@@ -25,6 +24,7 @@ public:
 	static IOCPModule* getInstance();
 	virtual bool initialize();
 	bool eventLoop();
+
 
 	enum operation { accept, recv, send };
 
@@ -95,8 +95,11 @@ public:
 		}
 	} PER_SOCKET_CONTEXT;
 
-
-
+	static PER_IO_CONTEXT* allocIoContext();
+	static PER_IO_CONTEXT* allocIoContext(SOCKET acceptSocket, operation opType, EVENT_HANDLER ev);
+	static PER_SOCKET_CONTEXT* allocSocketContext();
+	static bool freeIoContext(PER_IO_CONTEXT* context);
+	static bool freeSocketContext(PER_SOCKET_CONTEXT* context);
 private:
 	static IOCPModule* instance;
 
@@ -120,11 +123,5 @@ private:
 	bool postRecv(PER_IO_CONTEXT* ioContext, PER_SOCKET_CONTEXT* socketContext);
 	bool doAcceptEx(PER_IO_CONTEXT* context);
 	bool doRecv(PER_IO_CONTEXT* ioContext, PER_SOCKET_CONTEXT* socketContext);
-
-	static PER_IO_CONTEXT* allocIoContext();
-	static PER_IO_CONTEXT* allocIoContext(SOCKET acceptSocket, operation opType, EVENT_HANDLER ev);
-	static PER_SOCKET_CONTEXT* allocSocketContext();
-	static bool freeIoContext(PER_IO_CONTEXT* context);
-	static bool freeSocketContext(PER_SOCKET_CONTEXT* context);
 };
 

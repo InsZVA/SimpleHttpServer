@@ -24,7 +24,7 @@ IOCPModule::EVENT_HANDLER IOCPModule::recvHandler =
 IOCPModule::EVENT_HANDLER IOCPModule::sendHandler =
 [](PER_IO_CONTEXT* ioContext, PER_SOCKET_CONTEXT* socketContext) {
 	socketContext->close();
-	freeIoContext(ioContext);
+	IOCPModule::freeIoContext(ioContext);
 };
 
 
@@ -231,7 +231,6 @@ bool IOCPModule::doAcceptEx(PER_IO_CONTEXT* context) {
 		freeIoContext(context);
 		return false;
 	}
-
 
 	// post a recv request to iocp
 	memcpy(&recvSocketContext->clientAddr, clientAddr, sizeof(SOCKADDR_IN));

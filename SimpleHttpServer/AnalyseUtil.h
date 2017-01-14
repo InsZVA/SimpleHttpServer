@@ -19,17 +19,19 @@ public:
 		double tail;
 	} TIME;
 
-	AnalyseUtil() = delete;
-	~AnalyseUtil();
-	static HANDLE suspend();
-	static void recover(HANDLE h, std::string);
+	static AnalyseUtil* getInstance();
+	HANDLE suspend();
+	void recover(HANDLE h, std::string);
 
 	// Print analyse table to a file
-	static void printTable();
+	void printTable(std::string path);
+	void printTable(FILE*);
 private:
-	static std::atomic<HANDLE> handle;
-	static long long startTime[MAX_HANDLER];
-	static std::mutex suspendTimeTableMutex;
-	static std::map<std::string, TIME> suspendTimeTable;
+	std::atomic<HANDLE> handle = 0;
+	long long startTime[MAX_HANDLER];
+	std::mutex suspendTimeTableMutex;
+	std::map<std::string, TIME> suspendTimeTable;
+
+	static AnalyseUtil* instance;
 };
 
