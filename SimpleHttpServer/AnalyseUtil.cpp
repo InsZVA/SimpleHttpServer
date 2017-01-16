@@ -1,8 +1,6 @@
 #include "stdafx.h"
 #include "AnalyseUtil.h"
-#include <Windows.h>
-#include <fstream>
-#include <sstream>
+
 
 AnalyseUtil* AnalyseUtil::instance = nullptr;
 

@@ -4,6 +4,9 @@
 #include <map>
 #include <atomic>
 #include <mutex>
+#include <Windows.h>
+#include <fstream>
+#include <sstream>
 
 #define MAX_HANDLER 256
 

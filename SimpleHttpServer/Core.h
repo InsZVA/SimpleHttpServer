@@ -1,7 +1,10 @@
 #pragma once
-
+#include <thread>
 #include "IOCPModule.h"
 
+#ifdef DEBUG
+#include <iostream>
+#endif
 class Core
 {
 public:
@@ -13,7 +16,6 @@ private:
 	static Core* instance;
 	static void threadproc();
 
-	static IOCPModule* iocpModule;
 	int stop = 0;
 	int processorsNum = 0;
 };

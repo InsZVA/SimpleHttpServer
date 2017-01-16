@@ -1,50 +1,66 @@
 #pragma once
 
-#include "Module.h"
 #include <WinSock2.h>
 #include <MSWSock.h>
 #include <WS2tcpip.h>
 #include <functional>
 #include <iostream>
+#include "Mempool.h"
+#include "HttpRequest.h"
+#include <atomic>
+#include <thread>
+#include <queue>
 
 #pragma comment (lib, "Ws2_32.lib")
-
 //#define DEBUG
 
 #define MAX_BUFFER_LEN 1500 // Maybe MTU?
 #define PER_SOCKET_MAX_IO_CONTEXT_NUM 16
 #define EXAMPLE_RESPONSE "HTTP/1.1 200 OK\r\nServer:TestC\r\nContent-Type:text/html\r\nContent-Length:5\r\n\r\nHello\r\n\0"
 
-class IOCPModule : Module
+class IOCPModule
 {
 public:
 	// TODO: add thread local mempool
-	IOCPModule();
+	IOCPModule() = delete;
+	IOCPModule(Mempool *mempool);
 	~IOCPModule();
-	static IOCPModule* getInstance();
-	virtual bool initialize();
+
+	static bool initialize();
 	bool eventLoop();
 
 
-	enum operation { accept, recv, send };
+	enum operation { accept, recv, send, disconnect };
 
 	struct _PER_IO_CONTEXT;
 	struct _PER_SOCKET_CONTEXT;
-	typedef void(*EVENT_HANDLER)(IOCPModule::_PER_IO_CONTEXT*, IOCPModule::_PER_SOCKET_CONTEXT*);
+	typedef void(*EVENT_HANDLER)(IOCPModule* module, IOCPModule::_PER_IO_CONTEXT*, IOCPModule::_PER_SOCKET_CONTEXT*);
 
+	// If the send buffer is smaller than 1500
+	// Allocate in a struct. Otherwise allocate in heap
 	typedef struct _PER_IO_CONTEXT {
 		OVERLAPPED overlapped;
 		SOCKET socketAccept;
-		WSABUF wsaBuf;
-		char szBuffer[MAX_BUFFER_LEN];
 		operation opType;
 		IOCPModule::EVENT_HANDLER ev;
+		WSABUF wsaBuf;
+		// WARING: Internel use, DO NOT USE outside
+		// To read the buffer, please read wsabuf
+		// Because sometimes this struct was changed from LARGE_SEND_CONTEXT
+		char szBuffer[MAX_BUFFER_LEN];
 
-		bool postRecv() {
-			if (opType != recv) return false;
-			return SOCKET_ERROR != WSARecv(socketAccept, &wsaBuf, 1, 0, 0, &overlapped, NULL) || WSAGetLastError() != 997;
-		}
+	public:bool postRecv(IOCPModule*, IOCPModule::_PER_IO_CONTEXT*, IOCPModule::_PER_SOCKET_CONTEXT*);
 	} PER_IO_CONTEXT;
+
+	// If the send buffer is smaller than 1500
+	// Allocate in a struct. Otherwise allocate in heap
+	typedef struct _LARGE_SEND_CONTEXT {
+		OVERLAPPED overlapped;
+		SOCKET socketAccept;
+		operation opType;
+		IOCPModule::EVENT_HANDLER ev;
+		WSABUF wsaBuf;
+	} LARGE_SEND_CONTEXT;
 
 	typedef struct _PER_SOCKET_CONTEXT {
 		SOCKET socket;
@@ -52,64 +68,36 @@ public:
 		PER_IO_CONTEXT** arrayIoContext;
 		int arrayLen;
 		int arrayCap;
-
+		HttpRequest* request;
 	private: 
-		bool insertIoContext(PER_IO_CONTEXT* ioContext) {
-			return true; // for test
-			if (arrayLen < arrayCap) {
-				arrayIoContext[arrayLen] = ioContext;
-				arrayLen++;
-			}
-			else {
-				arrayCap <<= 1;
-				arrayIoContext = (PER_IO_CONTEXT**)realloc(arrayIoContext, arrayCap); // TODO: Optimize
-				if (arrayIoContext)
-					return insertIoContext(ioContext);
-				else
-					return false;
-			}
-			return true;
-		}
-
+		bool insertIoContext(PER_IO_CONTEXT* ioContext);
 	public:
-		bool postSend(const char* buff, int len) {
-			PER_IO_CONTEXT* ioContext = IOCPModule::allocIoContext(this->socket, send, IOCPModule::sendHandler);
-			memcpy(ioContext->szBuffer, buff, len); // TODO: optimize
-			ioContext->wsaBuf.len = len;
-			if (!insertIoContext(ioContext))
-			{
-				IOCPModule::freeIoContext(ioContext);
-				return false;
-			}
-			
-			// TODO:len > MTU?
-			if (SOCKET_ERROR == WSASend(this->socket, &ioContext->wsaBuf, 1, NULL, 0, &ioContext->overlapped, NULL) &&
-				WSAGetLastError() != 997) return false;
-		}
-
-		bool close() {
-			// TODO: Cancel all IO requests
-			// TODO: disconEx
-			closesocket(socket);
-			return true;
-		}
+		bool postSend(IOCPModule*, const char* buff, int len);
+		bool close(IOCPModule*);
 	} PER_SOCKET_CONTEXT;
 
-	static PER_IO_CONTEXT* allocIoContext();
-	static PER_IO_CONTEXT* allocIoContext(SOCKET acceptSocket, operation opType, EVENT_HANDLER ev);
-	static PER_SOCKET_CONTEXT* allocSocketContext();
-	static bool freeIoContext(PER_IO_CONTEXT* context);
-	static bool freeSocketContext(PER_SOCKET_CONTEXT* context);
+	PER_IO_CONTEXT* allocIoContext();
+	PER_IO_CONTEXT* allocIoContext(SOCKET acceptSocket, operation opType, EVENT_HANDLER ev);
+	LARGE_SEND_CONTEXT* allocSendContext(SOCKET acceptSocket, unsigned int size, EVENT_HANDLER ev);
+	PER_SOCKET_CONTEXT* allocSocketContext();
+	bool freeIoContext(PER_IO_CONTEXT* context);
+	bool freeSocketContext(PER_SOCKET_CONTEXT* context);
+	bool freeSendContext(LARGE_SEND_CONTEXT* context);
 private:
-	static IOCPModule* instance;
+	static std::atomic_int *startNum;
 
-	const int LISTEN_PORT = 4024;
-	const int PRE_ACCEPTEX_REQUESTS = 8;
+	static const int LISTEN_PORT = 4024;
+	static const int PRE_ACCEPTEX_REQUESTS = 8;
 
-	HANDLE iocp = NULL;
-	SOCKET listener = NULL;
-	LPFN_ACCEPTEX acceptEx = NULL;
-	LPFN_GETACCEPTEXSOCKADDRS getAcceptexSockAddrs = NULL;
+	static HANDLE iocp;
+	static SOCKET listener;
+	static LPFN_ACCEPTEX acceptEx;
+	static LPFN_GETACCEPTEXSOCKADDRS getAcceptexSockAddrs;
+	static LPFN_DISCONNECTEX disconnectEx;
+
+	std::queue<SOCKET> reusedSocketQueue;
+
+	Mempool *mempool = NULL;
 
 	// Note:
 	// ioContext could be returned form acceptex
@@ -123,5 +111,18 @@ private:
 	bool postRecv(PER_IO_CONTEXT* ioContext, PER_SOCKET_CONTEXT* socketContext);
 	bool doAcceptEx(PER_IO_CONTEXT* context);
 	bool doRecv(PER_IO_CONTEXT* ioContext, PER_SOCKET_CONTEXT* socketContext);
+
+	// This four functions push closed socket in a queue
+	// For future usage with AcceptEx
+	bool postDisconnect(SOCKET s);
+	bool doDisconnect(SOCKET s);
+	SOCKET getReusedSocket();
+	bool freeReusedSocket(SOCKET);
+
+	typedef struct _DISCONNECT_CONTEXT {
+		OVERLAPPED overlapped;
+		SOCKET socket;
+		operation opType;
+	} DISCONNECT_CONTEXT;
 };
 

@@ -2,8 +2,9 @@
 
 #include <list>
 #include <iostream>
-
-#define DEBUG
+#define    WIN32_LEAN_AND_MEAN
+#include <windows.h>
+//#define DEBUG
 
 /*
 Mempool - a memory pool to avoid frequently syscall
@@ -34,7 +35,7 @@ Use case:
 Brenchmark:
 	#define PARALLEL 1024
 	#define LOOP_NUM (64*1024/PARALLEL)
-	void* p[1024];
+	void* p[4096];
 	auto h = analyse->suspend();
 	for (auto i = 0; i < LOOP_NUM; i++) {
 		for (auto j = 0; j < PARALLEL; j++)
@@ -52,7 +53,7 @@ Brenchmark:
 	}
 	analyse->recover(h, "pool");
 
-	PARALLEL = 4095
+	PARALLEL = 4096
 	malloc                  1s+1.7664
 	pool                    0s+0.177244
 
@@ -94,69 +95,16 @@ public:
 		MIN_SLOT_BITMAP bmHeaderIndex;
 		MIN_SLOT slots[PAGE_MIN_SLOT_NUM];
 	public:
-		void* allocSlot(int nSize) {
-			if (nSize == 0) return NULL;
-			int nSlots = (nSize + MIN_SLOT_SIZE - 1) / MIN_SLOT_SIZE;
-			if (nSize > UINT_BIT_NUM * MIN_SLOT_SIZE) return NULL;
-			
-			for (auto i = 0; i < MIN_SLOT_INDEX_UINT_NUM; i++) {
-				if (!(~bmIndex[i])) {
-					// This 32 slots are used
-					continue;
-				}
-				else if (auto ret = matchIndex(i, nSlots))
-						return (void*)ret;
-			}
-			return nullptr;
-		}
+		void* allocSlot(int nSize);
 
 		// p must be allocated by this manager
-		void freeSlot(void* p) {
-			auto pSlot = (MIN_SLOT*)p;
-			unsigned int offset = pSlot - (MIN_SLOT*)this; // the slot offset
-			unsigned int bit = offset & 0x0000001f; // offset % 32
-			unsigned int byte = offset >> 5; // offset / 32
-#ifdef DEBUG
-			if (((bmIndex[byte] >> bit) & 0x01) == 0 || ((bmHeaderIndex[byte] >> bit) & 0x01) == 0) {
-				std::cout << "Error: free a not aloocated slot" << std::endl;
-			}
-#endif
-			unsigned int index = bmHeaderIndex[byte] >> bit;
-			unsigned int mask = 0xffffffff;
-			unsigned int len = 0;
-			for (len = 1; len < UINT_BIT_NUM - bit; len++) {
-				if ((index >> len) & 0x01) break;
-			}
-			mask >>= UINT_BIT_NUM - len;
-			mask <<= bit;
-			bmIndex[byte] ^= mask;
-			bmHeaderIndex[byte] &= (~mask);
-		}
+		void freeSlot(void* p);
 
-		void init() {
-			bmIndex[0] = 0x0000000f; // The first 4 slots are used by bitmap index abd header index
-			bmHeaderIndex[0] = 0x0000001; // The header is at slots[0]
-		}
+		void init();
 	private:
 		// step1 = bmIndex[i] & index: discard head bits
 		// return step1 == 0?slot:NULL and modify bmIndex if match
-		inline MIN_SLOT* matchIndex(int i, unsigned int nSlots) {
-			// Example:
-			// I want 7*min_slots, and the index is 0x0000007f (tail: ...0111 1111b)
-			unsigned int index = 0xffffffff >> (UINT_BIT_NUM - nSlots);
-			// TODO: link besides
-			for (unsigned int t = 0; t < UINT_BIT_NUM - nSlots; t++) {
-				if ((bmIndex[i] >> t) & index) continue;
-				// bmIndex[i]: 0x0000f80f -> 0x0000ffff (t = 4)
-				// tail: 1111 1000 0000 1111 -> 1111 1111 1111 1111
-				bmIndex[i] = bmIndex[i] | (index << t);
-				// bmHeaderIndex[i]: 0x00008001 -> 0x00008011
-				// tail: 0000 1000 0000 0001 -> 0000 1000 0001 0001
-				bmHeaderIndex[i] = bmHeaderIndex[i] | (1 << t);
-				return &slots[(i << 5) + t - 4];
-			}
-			return nullptr;
-		}
+		inline MIN_SLOT* matchIndex(int i, unsigned int nSlots);
 	} MIN_SLOT_MANAGER;
 	static_assert(sizeof(MIN_SLOT_MANAGER) == PAGE_SIZE, "manager struct error");
 

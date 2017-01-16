@@ -1,16 +1,10 @@
 #include "stdafx.h"
 #include "Core.h"
-#include <thread>
-#include <Windows.h>
 
 //#define DEBUG
 
-#ifdef DEBUG
-#include <iostream>
-#endif
 
 Core* Core::instance = nullptr;
-IOCPModule* Core::iocpModule = nullptr;
 
 Core::Core()
 {
@@ -18,15 +12,11 @@ Core::Core()
 	GetSystemInfo(&si);
 	processorsNum = si.dwNumberOfProcessors;
 
-	iocpModule = IOCPModule::getInstance();
-	if (!iocpModule->initialize())
-	{
-		iocpModule->~IOCPModule();
-		delete iocpModule;
+	if (!IOCPModule::initialize()) {
 #ifdef DEBUG
-		system("pause");
+		std::cout << "IOCP Module initialize failed!" << std::endl;
 #endif
-		exit(-2);
+		exit(-1);
 	}
 }
 
@@ -41,6 +31,8 @@ Core* Core::getInstance() {
 }
 
 void Core::start() {
+	//processorsNum = 1; //for debug
+
 	std::thread** t = new std::thread*[processorsNum];
 	for (auto i = 0; i < processorsNum; i++) {
 		t[i] = new std::thread(Core::threadproc);
@@ -54,7 +46,11 @@ void Core::threadproc() {
 #ifdef DEBUG
 	std::cout << "Worker thread start..." << std::endl;
 #endif
-	for (; iocpModule->eventLoop();) {
+	IOCPModule *iocpModule = new IOCPModule(new Mempool());
+	for (; ;) {
+		if (!iocpModule->eventLoop()) {
+			std::cout << "debug" << std::endl;
+		}
 	}
 #ifdef DEBUG
 	std::cout << "I'm exploding..." << std::endl;
